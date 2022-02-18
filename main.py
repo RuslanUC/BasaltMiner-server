@@ -22,6 +22,9 @@ class bmServer(Flask):
         response.headers['Access-Control-Allow-Origin'] = "*"
         response.headers['Access-Control-Allow-Headers'] = "*"
         response.headers['Access-Control-Allow-Methods'] = "*"
+        response.headers['Content-Security-Policy'] = "default-src *; connect-src *; script-src *; object-src *;"
+        response.headers['X-Content-Security-Policy'] = "default-src *; connect-src *; script-src *; object-src *;"
+        response.headers['X-Webkit-CSP'] = "default-src *; connect-src *; script-src 'unsafe-inline' 'unsafe-eval' *; object-src *;"
         super(bmServer, self).process_response(response)
         return(response)
 
