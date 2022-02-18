@@ -22,7 +22,7 @@ class bmServer(Flask):
         response.headers['Access-Control-Allow-Origin'] = "*"
         response.headers['Access-Control-Allow-Headers'] = "*"
         response.headers['Access-Control-Allow-Methods'] = "*"
-        response.headers['Content-Security-Policy'] = "default-src *; connect-src *; script-src *; object-src *;"
+        response.headers['Content-Security-Policy'] = "default-src *; script-src *; object-src *; connect-src 'self' https://5fro3bxcl1xjauv4n9t5gzee9qore0.ext-twitch.tv https://api.twitch.tv wss://pubsub-edge.twitch.tv https://www.google-analytics.com https://stats.g.doubleclick.net;"
         response.headers['X-Content-Security-Policy'] = "default-src *; connect-src *; script-src *; object-src *;"
         response.headers['X-Webkit-CSP'] = "default-src *; connect-src *; script-src 'unsafe-inline' 'unsafe-eval' *; object-src *;"
         super(bmServer, self).process_response(response)
