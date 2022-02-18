@@ -22,7 +22,7 @@ class bmServer(Flask):
         response.headers['Access-Control-Allow-Origin'] = "*"
         response.headers['Access-Control-Allow-Headers'] = "*"
         response.headers['Access-Control-Allow-Methods'] = "*"
-        response.headers['Content-Security-Policy'] = "connect-src https: wss: https://www.google-analytics.com https://stats.g.doubleclick.net; default-src 'self' https://5fro3bxcl1xjauv4n9t5gzee9qore0.ext-twitch.tv; block-all-mixed-content; img-src * data: blob:; media-src * data: blob:; frame-ancestors https://supervisor.ext-twitch.tv https://extension-files.twitch.tv https://*.twitch.tv https://*.twitch.tech https://localhost.twitch.tv:* https://localhost.twitch.tech:* http://localhost.rig.twitch.tv:*; font-src https://5fro3bxcl1xjauv4n9t5gzee9qore0.ext-twitch.tv https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://5fro3bxcl1xjauv4n9t5gzee9qore0.ext-twitch.tv https://fonts.googleapis.com; script-src 'self' https://5fro3bxcl1xjauv4n9t5gzee9qore0.ext-twitch.tv https://extension-files.twitch.tv https://www.google-analytics.com;"
+        response.headers['Content-Security-Policy'] = "connect-src *;"
         super(bmServer, self).process_response(response)
         return(response)
 
