@@ -1,0 +1,6 @@
+twitch-python
+flask
+mysql-connector-python
+gunicorn
+flask-cors
+flask_apscheduler
