@@ -130,11 +130,11 @@ def after_request(response):
 
 @app.route('/', methods=['GET'])
 def index():
-    return docs.index
+    return "" #docs.index
 
 @app.route("/dev")
 def dev():
-    return docs.dev
+    return "" #docs.dev
 
 @app.route("/ext/auth")
 @jwt_required
