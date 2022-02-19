@@ -87,7 +87,7 @@ class bmDatabase:
 
     def getCompletedDuels(self, uid, r):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `user1`, `user2`, `winner`, `time` FROM `duels` WHERE (`user1`={uid} OR `user2`={uid}) AND `completed`=1')
+        cur.execute(f'SELECT `user1`, `user2`, `winner`, `time` FROM `duels` WHERE (`user1`={uid} OR `user2`={uid}) AND `completed`=1 LIMIT=10')
         data = list(cur)
         cur.close()
         res = []
@@ -98,11 +98,11 @@ class bmDatabase:
                 u = row[1]
             else:
                 u = row[0]
-            ologin = self.getUserData(select=['login'], where={'user_id': u})
+            oth = self.getUserData(select=['login'], where={'user_id': u})
             if row[0] == uid:
-                res[-1].append(ologin)
+                res[-1].append(oth.login)
             else:
-                res[-1].append(ologin)
+                res[-1].append(oth.login)
                 res[-1].append(r.login)
             res[-1].append(datetime.fromtimestamp(row[3]).strftime("%d.%m.%Y-%H:%M:%S"))
             res[-1].append(True if row[2] == uid else False)
@@ -122,8 +122,8 @@ class bmDatabase:
             else:
                 mreq[-1].append(row[0])
                 u = row[0]
-            ologin = self.getUserData(select=['login'], where={'user_id': u})
-            mreq[-1].append(ologin)
+            oth = self.getUserData(select=['login'], where={'user_id': u})
+            mreq[-1].append(oth.login)
             mreq[-1].append(datetime.fromtimestamp(row[2]).strftime("%d.%m.%Y-%H:%M:%S"))
         return mreq
 
@@ -141,8 +141,8 @@ class bmDatabase:
             else:
                 req[-1].append(row[0])
                 u = row[0]
-            ologin = self.getUserData(select=['login'], where={'user_id': u})
-            req[-1].append(ologin)
+            oth = self.getUserData(select=['login'], where={'user_id': u})
+            req[-1].append(oth.login)
             req[-1].append(datetime.fromtimestamp(row[2]).strftime("%d.%m.%Y-%H:%M:%S"))
         return req
 
