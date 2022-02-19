@@ -5,6 +5,7 @@ from random import choice
 from time import time
 from threading import currentThread
 from datetime import datetime
+from json import loads as jloads
 
 class obj:
     def __init__(self, **kwargs):
@@ -33,6 +34,11 @@ class bmDatabase:
         return db
 
     def _pr(self, text):
+        try:
+            jloads(text)
+            return text
+        except:
+            pass
         return sub('[^a-zA-Z0-9_-]', "", text)
 
     def getTop(self, tp):
