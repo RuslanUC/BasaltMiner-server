@@ -87,7 +87,7 @@ class bmDatabase:
 
     def getCompletedDuels(self, uid, r):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `user1`, `user2`, `winner`, `time` FROM `duels` WHERE (`user1`={uid} OR `user2`={uid}) AND `completed`=1 LIMIT=10')
+        cur.execute(f'SELECT `user1`, `user2`, `winner`, `time` FROM `duels` WHERE (`user1`={uid} OR `user2`={uid}) AND `completed`=1 LIMIT 10')
         data = list(cur)
         cur.close()
         res = []
@@ -110,7 +110,7 @@ class bmDatabase:
 
     def getMyDuelRequests(self, uid):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `user1`, `user2`, `time` FROM `duels` WHERE `user1`={uid} AND `completed`=0')
+        cur.execute(f'SELECT `user1`, `user2`, `time` FROM `duels` WHERE `user1`={uid} AND `completed`=0 LIMIT 10')
         data = list(cur)
         cur.close()
         mreq = []
@@ -129,7 +129,7 @@ class bmDatabase:
 
     def getDuelRequests(self, uid):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `user1`, `user2`, `time` FROM `duels` WHERE `user2`={uid} AND `completed`=0')
+        cur.execute(f'SELECT `user1`, `user2`, `time` FROM `duels` WHERE `user2`={uid} AND `completed`=0 LIMIT 10')
         data = list(cur)
         cur.close()
         req = []
