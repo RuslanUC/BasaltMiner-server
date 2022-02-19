@@ -149,14 +149,16 @@ class bmDatabase:
     def duelsAvailable(self, uid):
         cur = self.getDB().cursor()
         cur.execute(f'SELECT `completed` FROM `duels` WHERE (`user1`={uid} OR `user2`={uid}) AND `time` > {getTS()}')
+        av = len(list(cur)) <= 25
         cur.close()
-        return len(list(cur)) <= 25
+        return av
 
     def duelsAvailableForUsers(self, uid, ouid):
         cur = self.getDB().cursor()
         cur.execute(f'SELECT `completed` FROM `duels` WHERE ((`user1`={uid} AND `user2`={ouid}) OR (`user1`={ouid} AND `user2`={uid})) AND `time` > {getTS()}')
+        av = len(list(cur)) <= 5
         cur.close()
-        return len(list(cur)) <= 5
+        return av
 
     def getUserForRandomDuel(self, uid, r):
         cur = self.getDB().cursor()
@@ -182,8 +184,9 @@ class bmDatabase:
     def notCompletedDuelExist(self, user1, user2):
         cur = self.getDB().cursor()
         cur.execute(f'SELECT `time` FROM `duels` WHERE ((`user1`={user1} AND `user2`={user2}) OR (`user1`={user2} AND `user2`={user1})) AND `completed`=0')
+        ex = len(list(cur)) > 0
         cur.close()
-        return len(list(cur)) > 0
+        return ex
 
     def updateDuelData(self, user1, user2, winner, time):
         cur = self.getDB().cursor()
