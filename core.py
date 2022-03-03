@@ -6,16 +6,14 @@ from time import time
 from threading import currentThread
 from datetime import datetime
 from json import loads as jloads
+from classes import User, CompletelDuel
 
-class obj:
-    def __init__(self, **kwargs):
-        for k,v in kwargs.items():
-            setattr(self, k, v)
-
-class bmDatabase:
-    def __init__(self, host, user, password, database, port=3306):
+class bmCore:
+    def __init__(self, helix, host, user, password, database, port=3306):
         self.dbs = {}
         self._dbargs = {"user": user, "password": password, "host": host, "port": port, "database": database, "autocommit": True}
+        self._users = {}
+        self.helix = helix
 
     def getDB(self):
         ct = currentThread().ident
@@ -53,70 +51,108 @@ class bmDatabase:
             c[idx][1] = round(c[idx][1], 1)
         return c
 
-    def authUser(self, uid, login):
-        login = self._pr(login)
+    def authUser(self, uid):
         c = round(time()*1000)
         cur = self.getDB().cursor()
+        cur.execute(f'SELECT `login` FROM `users` WHERE `user_id`={uid}')
+        cr = list(cur)
+        if cr:
+            login = cr[0][0]
+        else:
+            login = self.helix.users([uid])[0].display_name
+            login = self._pr(login)
         cur.execute(f'INSERT INTO `users` (`user_id`, `login`, `count`) values ({uid}, "{login}", {c}) ON DUPLICATE KEY UPDATE `count`={c};')
         cur.close()
-        return c
+        user = User(uid, login, c, self)
+        self._users[uid] = user
+        return user
 
-    def getUserData(self, select, where):
-        rselect = select.copy()
-        select = [f"`{s}`" for s in select]
-        select = ", ".join(select)
-        where = [f"`{k}`={v}" if isinstance(v, int) or isinstance(v, bool) or isinstance(v, float) else f"`{k}`=\"{self._pr(v)}\"" for k,v in where.items()]
-        where = " AND ".join(where)
+    def getUser(self, uid):
+        if uid in self._users:
+            return self._users[uid]
+        else:
+            cur = self.getDB().cursor()
+            cur.execute(f'SELECT `login`, `count` FROM `users` WHERE `user_id`={uid};')
+            c = list(cur)
+            cur.close()
+            if c:
+                return User(uid, c[0][0], c[0][1], self)
+
+    def getUserByLogin(self, login, fields=[]):
+        user = [usr for usr in self._users if usr.login == login]
+        if user:
+            return user[0]
+        else:
+            fields = [f"`{f}`" for f in fields]
+            fields = ", ".join(fields)
+            cur = self.getDB().cursor()
+            cur.execute(f'SELECT `user_id`, `count`, {fields} FROM `users` WHERE `login`={self._pr(login)};')
+            c = list(cur)
+            cur.close()
+            if c:
+                user = User(c[0][0], login, c[0][1], self)
+                user.setData(dict([(k,v) for k,v in zip(fields, list(c[0])[2:])]))
+                self._users[c[0][0]] = user
+                return user
+
+    def getData(self, user, fields):
+        ofields = fields.copy()
+        fields = [f"`{f}`" for f in fields]
+        fields = ", ".join(fields)
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT {select} FROM `users` WHERE {where}')
+        cur.execute(f'SELECT {fields} FROM `users` WHERE `user_id`={user.id}')
         c = list(cur)
         cur.close()
         if c:
-            res = dict([(k,v) for k,v in zip(rselect, list(c[0]))])
-            return obj(**res)
-        return None
+            data = [(k,v) for k,v in zip(ofields, list(c[0]))]
+            return data
+        return {}
 
-    def updateUserData(self, set, where):
-        set = [f"`{k}`={v}" if isinstance(v, int) or isinstance(v, bool) or isinstance(v, float) else f"`{k}`=\"{self._pr(v)}\"" for k,v in set.items()]
-        set = ", ".join(set)
-        where = [f"`{k}`={v}" if isinstance(v, int) or isinstance(v, bool) or isinstance(v, float) else f"`{k}`=\"{self._pr(v)}\"" for k,v in where.items()]
-        where = " AND ".join(where)
+    def updateUserData(self, user, data):
+        data = [f"`{k}`={v}" if isinstance(v, int) or isinstance(v, bool) or isinstance(v, float) else f"`{k}`=\"{self._pr(v)}\"" for k,v in data.items()]
+        data = ", ".join(data)
         cur = self.getDB().cursor()
-        cur.execute(f'UPDATE `users` SET {set} WHERE {where}')
+        cur.execute(f'UPDATE `users` SET {data} WHERE `user_id`={user.id}')
         cur.close()
 
-    def getCompletedDuels(self, uid, r):
+    def getCompletedDuels(self, user):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `user1`, `user2`, `winner`, `time` FROM `duels` WHERE (`user1`={uid} OR `user2`={uid}) AND `completed`=1 LIMIT 10')
+        cur.execute(f'SELECT `user1`, `user2`, `winner`, `time` FROM `duels` WHERE (`user1`={user.id} OR `user2`={user.id}) AND `completed`=1 LIMIT 10')
         data = list(cur)
         cur.close()
-        res = []
+        duels = []
+
+        user1 = None
+        user2 = None
+        winner = False
+        tm = None
+
         for row in data:
-            res.append([])
-            if row[0] == uid:
-                res[-1].append(r.login)
+            if row[0] == user.id:
+                user1 = user
                 u = row[1]
             else:
+                user2 = user
                 u = row[0]
-            oth = self.getUserData(select=['login'], where={'user_id': u})
-            if row[0] == uid:
-                res[-1].append(oth.login)
+            oth = self.getUser(u)
+            if row[0] == user.id:
+                user2 = oth
             else:
-                res[-1].append(oth.login)
-                res[-1].append(r.login)
-            res[-1].append(datetime.fromtimestamp(row[3]).strftime("%d.%m.%Y-%H:%M:%S"))
-            res[-1].append(True if row[2] == uid else False)
-        return res
+                user1 = oth
+            winner = user if row[2] == user.id else oth
+            tm = datetime.fromtimestamp(row[3]).strftime("%d.%m.%Y-%H:%M:%S")
+            duels.append(CompletelDuel(user1, user2, True, winner, tm, self))
+        return duels
 
-    def getMyDuelRequests(self, uid):
+    def getMyDuelRequests(self, user):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `user1`, `user2`, `time` FROM `duels` WHERE `user1`={uid} AND `completed`=0 LIMIT 10')
+        cur.execute(f'SELECT `user1`, `user2`, `time` FROM `duels` WHERE `user1`={user.id} AND `completed`=0 LIMIT 10')
         data = list(cur)
         cur.close()
         mreq = []
         for row in data:
             mreq.append([])
-            if row[0] == uid:
+            if row[0] == user.id:
                 mreq[-1].append(row[1])
                 u = row[1]
             else:
@@ -127,15 +163,15 @@ class bmDatabase:
             mreq[-1].append(datetime.fromtimestamp(row[2]).strftime("%d.%m.%Y-%H:%M:%S"))
         return mreq
 
-    def getDuelRequests(self, uid):
+    def getDuelRequests(self, user):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `user1`, `user2`, `time` FROM `duels` WHERE `user2`={uid} AND `completed`=0 LIMIT 10')
+        cur.execute(f'SELECT `user1`, `user2`, `time` FROM `duels` WHERE `user2`={user.id} AND `completed`=0 LIMIT 10')
         data = list(cur)
         cur.close()
         req = []
         for row in data:
             req.append([])
-            if row[0] == uid:
+            if row[0] == user.id:
                 req[-1].append(row[1])
                 u = row[1]
             else:
@@ -146,30 +182,31 @@ class bmDatabase:
             req[-1].append(datetime.fromtimestamp(row[2]).strftime("%d.%m.%Y-%H:%M:%S"))
         return req
 
-    def duelsAvailable(self, uid):
+    def duelsAvailable(self, user):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `completed` FROM `duels` WHERE (`user1`={uid} OR `user2`={uid}) AND `time` > {getTS()}')
+        cur.execute(f'SELECT `completed` FROM `duels` WHERE (`user1`={user.id} OR `user2`={user.id}) AND `time` > {getTS()}')
         av = len(list(cur)) <= 25
         cur.close()
         return av
 
-    def duelsAvailableForUsers(self, uid, ouid):
+    def duelsAvailableForUsers(self, user, ouser):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `completed` FROM `duels` WHERE ((`user1`={uid} AND `user2`={ouid}) OR (`user1`={ouid} AND `user2`={uid})) AND `time` > {getTS()}')
+        cur.execute(f'SELECT `completed` FROM `duels` WHERE ((`user1`={user.id} AND `user2`={ouser.id}) OR (`user1`={ouser.id} AND `user2`={user.id})) AND `time` > {getTS()}')
         av = len(list(cur)) <= 5
         cur.close()
         return av
 
-    def getUserForRandomDuel(self, uid, r):
+    def getUserForRandomDuel(self, user):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `user_id`, `login`, `stats`, `duelsWins`, `duelsTotal` FROM `users` WHERE `duelsRandom`=true AND `duelsAuto`=true AND `level`>{r.level-5} AND `level`>9 AND `level`<{r.level+10} AND `user_id`!={uid} ORDER BY RAND() LIMIT 10')
+        cur.execute(f'SELECT `user_id`, `login`, `stats`, `duelsWins`, `duelsTotal` FROM `users` WHERE `duelsRandom`=true AND `duelsAuto`=true AND `level`>{user.level-5} AND `level`>9 AND `level`<{user.level+10} AND `user_id`!={user.id} ORDER BY RAND() LIMIT 10')
         data = list(cur)
         cur.close()
         if len(data) < 1:
             return None
         data = choice(data)
-        data = dict([(k,v) for k,v in zip(['user_id', 'login', 'stats', 'duelsWins', 'duelsTotal'], list(data))])
-        return obj(**data)
+        ouser = User(None, None, None, self)
+        ouser.setData(dict([(k,v) for k,v in zip(['id', 'login', 'stats', 'duelsWins', 'duelsTotal'], list(data))]))
+        return ouser
 
     def insertDuel(self, user1, user2, winner, time):
         cur = self.getDB().cursor()
@@ -183,7 +220,7 @@ class bmDatabase:
 
     def notCompletedDuelExist(self, user1, user2):
         cur = self.getDB().cursor()
-        cur.execute(f'SELECT `time` FROM `duels` WHERE ((`user1`={user1} AND `user2`={user2}) OR (`user1`={user2} AND `user2`={user1})) AND `completed`=0')
+        cur.execute(f'SELECT `time` FROM `duels` WHERE ((`user1`={user1.id} AND `user2`={user2.id}) OR (`user1`={user2.id} AND `user2`={user1.id})) AND `completed`=0')
         ex = len(list(cur)) > 0
         cur.close()
         return ex
