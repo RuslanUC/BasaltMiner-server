@@ -1,32 +1,13 @@
-from base64 import urlsafe_b64decode as ub64d, urlsafe_b64encode as ub64e
-from hmac import new as hnew
-from hashlib import sha256
 from json import loads as jloads
 from random import choice
 from datetime import datetime
 from time import mktime, time
 
-class JWT: # Класс для получения данных из jwt токена
-	@classmethod
-	def decode(cls, token, secret: bytes):
-		token = bytes(token, "utf8").split(b".")
-		header = token[0]
-		payload = token[1]
-		signature = token[2]
-		sig = header+b"."+payload
-		sig = hnew(secret, sig, sha256).digest()
-		sig = ub64e(sig).replace(b"=", b"")
-		if sig == signature:
-			payload += b"=" * ((4 - len(payload) % 4) % 4)
-			payload = ub64d(payload).decode("utf8")
-			return jloads(payload)
-		return None
-
 class World:
-	def __init__(self, name, color, level):
-		self.name = name
-		self.color = color
-		self.level = level
+    def __init__(self, name, color, level):
+        self.name = name
+        self.color = color
+        self.level = level
 
 blocks = { # Блоки для каждой шахты
 	1: [1, 2],
@@ -168,87 +149,8 @@ def formatNumber(num): # Преобразования чисел в сокращ
 	else:
 		return "???"
 
-class Streamer:
-	id = 0
-	count = 0
-	name = ""
-	def_cost = 0
-	def_income = 0
-	redstone = 0
-
-	def __init__(self, id, count, name, def_cost, def_income, redstone):
-		self.id = id
-		self.count = count
-		self.name = name
-		self.def_cost = def_cost
-		self.def_income = def_income
-		self.redstone = redstone
-
-	def getCost(self):
-		return self.def_cost*(self.count+1)
-
-	def getIncomeForCount(self, c):
-		if c == 0:
-			return 0
-		return self.def_income*(1.5**c)
-
-	def toJSON(self):
-		return [
-			self.id, 
-			self.count, 
-			self.name, 
-			formatNumber(self.getCost()), 
-			self.redstone, 
-			formatNumber(self.getIncomeForCount(self.count)),
-			formatNumber(self.getIncomeForCount(self.count+1))]
-
-	def canBeUpgraded(self, gold, redstone):
-		if gold < self.getCost(): return 1
-		if redstone < self.redstone: return 2
-		return 0
-
-	def upgrade(self):
-		self.count += 1
-
-	def getIncome(self):
-		return self.getIncomeForCount(self.count)
-
-class Streamers:
-	st = []
-
-	def __init__(self, arr):
-		arr = jloads(arr)
-		self.st = []
-		self.st.append(Streamer(0, arr[0], "5opka", 1000000, 1000, 0))
-		self.st.append(Streamer(1, arr[1], "JackLooney", 100000000, 10000, 100))
-		self.st.append(Streamer(2, arr[2], "exx1dae", 10000000000, 100000, 250))
-		self.st.append(Streamer(3, arr[3], "Zakviel", 10000000000000, 10000000, 500))
-
-	def canBeUpgraded(self, id, gold, redstone):
-		return self.st[id].canBeUpgraded(gold, redstone)
-
-	def upgrade(self, id):
-		return self.st[id].upgrade()
-
-	def toJSON(self, id=-1):
-		if id != -1:
-			return self.st[id].toJSON()
-		return [s.toJSON() for s in self.st]
-
-	def getTotalIncome(self):
-		return sum([s.getIncome() for s in self.st])
-
-	def getCost(self, id):
-		return self.st[id].getCost()
-
-	def exportLevels(self):
-		return [s.count for s in self.st]
-
 def isWin(s1, s2):
 	return [True if u-o > 0 else False for u,o in zip(jloads(s1), jloads(s2))].count(True) >= 2
-
-def getStreamersIncome(minutes, streamers):
-	return Streamers(streamers).getTotalIncome()*minutes
 
 def getTS(): # Получение метки времени текущего дня
 	n = datetime.now()
