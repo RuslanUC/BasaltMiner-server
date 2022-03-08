@@ -1,18 +1,18 @@
 from flask import Flask, request, abort
-from time import time, sleep
+from time import time
 from json import dumps as jdumps, loads as jloads
 from functools import wraps
-from util import JWT, getBlock, getBlockBreakTime, getWorlds, getBibaPercentage, getLevelPrice, worldAvailable, formatNumber, Streamers, getStreamersIncome, isWin, Logs, LogEntry, RTL
+from util import getBlock, getBlockBreakTime, getWorlds, getBibaPercentage, getLevelPrice, worldAvailable, formatNumber, isWin, Logs, LogEntry, RTL
 from base64 import urlsafe_b64decode as ub64d
 from core import bmCore
 from twitch import Helix
 from random import random as rrandom
-from threading import Thread
 from datetime import datetime
 from re import sub
 from flask_cors import CORS
 from apscheduler.schedulers.background import BackgroundScheduler
 from mysql.connector import connect
+from classes import CompletedDuel, RequestedDuel, JWT, Streamers
 import os
 import docs
 
@@ -29,7 +29,7 @@ class bmServer(Flask):
 top = []
 STREAM = 1
 helix = Helix(os.environ["APP_ID"], os.environ["APP_SECRET"])
-db = bmCore(helix=helix, user=os.environ["DB_USER"], password=os.environ["DB_PASS"], host=os.environ["DB_HOST"], port=3306, database=os.environ["DB_NAME"])
+core = bmCore(helix=helix, user=os.environ["DB_USER"], password=os.environ["DB_PASS"], host=os.environ["DB_HOST"], port=3306, database=os.environ["DB_NAME"])
 app = bmServer("BasaltMiner")
 CORS(app)
 st = time()
@@ -44,7 +44,7 @@ def topUpdateTask():
         top = []
         for tp in ["gold", "level", "redstone", "duelsWins", "biba"]:
             top.append([])
-            top[-1] += db.getTop(tp)
+            top[-1] += core.getTop(tp)
     except:
         pass
 
@@ -91,7 +91,7 @@ def getUid(f):
 def getUser(f):
     @wraps(f)
     def gUser(*args, **kwargs):
-        user = db.getUser(kwargs["uid"])
+        user = core.getUser(kwargs["uid"])
         if "c" not in request.args:
             return abort(403)
         sess = int(request.args.get("c"))
@@ -161,7 +161,7 @@ def dev():
 @app.route("/ext/auth")
 @getUid
 def ext_auth(uid):
-    user = db.authUser(uid)
+    user = core.authUser(uid)
     user.getData(['level', 'world', 'breakTime', 'block', 'gold', 'redstone', 'ban', 'banReason'])
     if user.ban:
         return jdumps({"message": "You are banned.", "reason": user.banReason}), 403
@@ -176,7 +176,7 @@ def mine_reward(user):
     breakTime = getBlockBreakTime(block, user.level)
     bonus = 10 if rrandom() <= 0.13 else 1
     m = user.block*user.boost*STREAM*bonus*0.1
-    user.set(gold=user.gold+m+getStreamersIncome((round(time())-user.lastupdate)/60, user.streamers), block=block, breakTime=breakTime, lastupdate=round(time()))
+    user.set(gold=user.gold+m+user.getStreamers().getIncome((time()-user.lastupdate)/60), block=block, breakTime=breakTime, lastupdate=round(time()))
     return jdumps({"block": block, "point": 2, "time": breakTime, "cost": formatNumber(m), "boost": round(user.boost*STREAM*bonus, 1), "update": {"time": round(time()*1000), "money": formatNumber(user.gold), "points": formatNumber(user.redstone)}})
     
 @app.route("/upgrade/update")
@@ -197,7 +197,7 @@ def upgrade_income(user):
         boosts.append(["Стрим запущен", STREAM])
         total *= STREAM
     boosts.append(["Постоянный множитель", round(user.boost, 1)])
-    return jdumps({"boost": boosts, "total": total, "income": formatNumber(getStreamersIncome(1, user.streamers))})
+    return jdumps({"boost": boosts, "total": total, "income": formatNumber(user.getStreamers().getIncome(1))})
 
 @app.route("/upgrade/level")
 @getUid
@@ -209,7 +209,7 @@ def upgrade_level(user):
 @app.route("/upgrade/levelup")
 @getUid
 @getUser
-@getUserData(['level', 'statPoints', 'block', 'gold'])
+@getUserData(['level', 'statPoints', 'block', 'gold', 'redstone'])
 def upgrade_levelup(user):
     if user.gold >= getLevelPrice(user.level):
         user.set(level=user.level+1, statPoints=user.statPoints+1, breakTime=getBlockBreakTime(user.block, user.level), gold=user.gold-getLevelPrice(user.level))
@@ -220,8 +220,8 @@ def upgrade_levelup(user):
 @app.route("/upgrade/bibaup")
 @getUid
 @getUser
-@getUserData(['biba', 'boost', 'redstone'])
-def upgrade_bibaup(uid):
+@getUserData(['biba', 'boost', 'redstone', 'gold'])
+def upgrade_bibaup(user):
     if user.redstone >= 2500:
         if rrandom() < getBibaPercentage(user.biba)/100:
             user.set(biba=user.biba+1, boost=user.boost+0.1, redstone=user.redstone-2500)
@@ -234,7 +234,7 @@ def upgrade_bibaup(uid):
 @app.route("/upgrade/statdis")
 @getUid
 @getUser
-@getUserData(['statPoints', 'stats', 'redstone'])
+@getUserData(['statPoints', 'stats', 'redstone', 'gold'])
 def upgrade_statdis(user):
     if user.redstone >= 1000:
         s = sum(jloads(user.stats))
@@ -321,24 +321,22 @@ def duel_set(user):
 def duel_rnd(user):
     if not user.duelsAvailable():
         return jdumps({"code": 1})
-    ouser = db.getUserForRandomDuel(user)
+    ouser = core.getUserForRandomDuel(user)
     if not ouser:
         return jdumps({"code": 2})
     iw = isWin(user.stats, ouser.stats)
+    winner = user if iw else ouser
     curtime = round(time())
-    if iw:
-        user.set(duelsWins=user.duelsWins+1, duelsTotal=user.duelsTotal+1)
-        ouser.set(duelsTotal=ouser.duelsTotal+1)
-    else:
-        user.set(duelsTotal=user.duelsTotal+1)
-        ouser.set(duelsWins=ouser.duelsWins+1, duelsTotal=ouser.duelsTotal+1)
-    db.insertDuel(uid, ouser.id, uid if iw else ouser.id, curtime)
-    return jdumps({"code": 3, "result": [user.login, ouser.login, datetime.fromtimestamp(curtime).strftime("%d.%m.%Y-%H:%M:%S"), iw]})
+    tm = datetime.fromtimestamp(curtime).strftime("%d.%m.%Y-%H:%M:%S")
+    duel = CompletedDuel(user, ouser, winner, tm)
+    user.addCompletedDuel(duel)
+    ouser.addCompletedDuel(duel)
+    core.insertDuel(user, ouser, winner, curtime)
+    return jdumps({"code": 3, "result": [user.login, ouser.login, tm, iw]})
 
 @app.route("/duel/send")
 @getUid
 @getUser
-@getUserData(['login'])
 def duel_send(user):
     login = request.args.get("login")
     login = sub('[^a-zA-Z0-9_-]', "", login)
@@ -348,84 +346,73 @@ def duel_send(user):
         return jdumps({"code": 5})
     if user.login.lower() == login.lower():
         return jdumps({"code": 2})
-    ouser = db.getUserByLogin(login, ['user_id', 'level'])
+    ouser = core.getUserByLogin(login, ['level'])
     if not ouser:
         return jdumps({"code": 1})
     if ouser.level < 10:
         return jdumps({"code": 3})
-    if db.notCompletedDuelExist(user, ouser):
+    if core.notCompletedDuelExist(user, ouser):
         return jdumps({"code": 4})
     curtime = round(time())
-    db.insertIncDuel(user.id, ouser.id, curtime)
-    return jdumps({"code": 6, "request": [ouser.id, login, datetime.fromtimestamp(curtime).strftime("%d.%m.%Y-%H:%M:%S")]})
+    tm = datetime.fromtimestamp(curtime).strftime("%d.%m.%Y-%H:%M:%S")
+    user.addMyDuelRequest(RequestedDuel(ouser, tm, curtime, core))
+    ouser.addDuelRequest(RequestedDuel(user, tm, curtime, core))
+    core.insertDuel(user, ouser, curtime)
+    return jdumps({"code": 6, "request": [ouser.id, login, tm]})
 
 @app.route("/duel/decline")
-@jwt_required
-@rate_limit(5)
-def duel_decline(uid):
+@getUid
+@getUser
+def duel_decline(user):
     ouid = int(request.args.get("id"))
-    try:
-        db.getUserData(select=['login'], where={'user_id': uid, 'count': request.args.get("c")})
-    except IndexError:
-        return abort(403)
-    db.declineDuel(uid, ouid)
+    user.declineDuel(core.getUser(ouid))
     return jdumps({"code": 0})
 
 @app.route("/duel/accept")
-@jwt_required
-@rate_limit(5)
-def duel_accept(uid):
+@getUid
+@getUser
+@getUserData(['stats', 'level', 'duelsWins', 'duelsTotal'])
+def duel_accept(user):
     ouid = int(request.args.get("id"))
-    try:
-        r = db.getUserData(select=['login', 'stats', 'duelsWins', 'duelsTotal'], where={'user_id': uid, 'count': request.args.get("c")})
-    except IndexError:
-        return abort(403)
-    if not db.duelsAvailable(uid):
+    ouser = core.getUser(ouid)
+    if not user.duelsAvailable():
         return jdumps({"code": 2})
-    if not db.duelsAvailable(ouid):
+    if not ouser.duelsAvailable():
         return jdumps({"code": 5})
-    if not db.duelsAvailableForUsers(uid, ouid):
+    if not core.duelsAvailableForUsers(user, ouser):
         return jdumps({"code": 4})
-    d = db.getUserData(select=['login', 'stats', 'duelsWins', 'duelsTotal'], where={'user_id': ouid})
-    iw = isWin(r.stats, d.stats)
+    ouser.getData(['login', 'stats', 'duelsWins', 'duelsTotal'])
+    iw = isWin(user.stats, ouser.stats)
     curtime = round(time())
-    if iw:
-        db.updateUserData(set={'duelsWins': r.duelsWins+1, 'duelsTotal': r.duelsTotal+1}, where={'user_id': uid, 'count': request.args.get("c")})
-        db.updateUserData(set={'duelsTotal': d.duelsTotal+1}, where={'user_id': ouid})
-    else:
-        db.updateUserData(set={'duelsTotal': r.duelsTotal+1}, where={'user_id': uid, 'count': request.args.get("c")})
-        db.updateUserData(set={'duelsWins': r.duelsWins+1, 'duelsTotal': d.duelsTotal+1}, where={'user_id': ouid})
-    db.updateDuelData(uid, ouid, uid if iw else ouid, curtime)
-    return jdumps({"code": 5, "result": [r.login, d.login, datetime.fromtimestamp(curtime).strftime("%d.%m.%Y-%H:%M:%S"), iw], "wins": r.duelsWins+(1 if iw else 0), "count": r.duelsTotal+1})
+    tm = datetime.fromtimestamp(curtime).strftime("%d.%m.%Y-%H:%M:%S")
+    winner = user if iw else ouser
+    user.removeDuelRequest(ouser)
+    ouser.removeDuelRequest(user)
+    duel = CompletedDuel(user, ouser, winner, tm)
+    user.addCompletedDuel(duel)
+    ouser.addCompletedDuel(duel)
+    core.updateDuelData(user, ouser, winner, curtime)
+    return jdumps({"code": 5, "result": [user.login, ouser.login, tm, iw], "wins": user.duelsWins, "count": user.duelsTotal})
 
 @app.route("/upgrade/list")
-@jwt_required
-@rate_limit(5)
-def upgrade_list(uid):
-    try:
-        r = db.getUserData(select=['streamers'], where={'user_id': uid, 'count': request.args.get("c")})
-    except IndexError:
-        return abort(403)
-    return jdumps(Streamers(r.streamers).toJSON())
+@getUid
+@getUser
+@getUserData(['streamers'])
+def upgrade_list(user):
+    return jdumps(user.getStreamers().toJSON())
 
 @app.route("/upgrade/streamerup")
-@jwt_required
-@rate_limit(15)
-def upgrade_streamerup(uid):
+@getUid
+@getUser
+@getUserData(['streamers', 'gold', 'redstone'])
+def upgrade_streamerup(user):
     streamer_id = int(request.args.get("id"))
-    try:
-        r = db.getUserData(select=['streamers', 'gold', 'redstone'], where={'user_id': uid, 'count': request.args.get("c")})
-    except IndexError:
-        return abort(403)
-    st = Streamers(r.streamers)
-    cbu = st.canBeUpgraded(streamer_id, r.gold, r.redstone)
+    st = user.getStreamers()
+    cbu = st.canBeUpgraded(streamer_id)
     if cbu in [1, 2]:
         return jdumps({"code": cbu})
-    gold = r.gold - st.getCost(streamer_id)
-    redstone = r.redstone - st.st[streamer_id].redstone
     st.upgrade(streamer_id)
-    db.updateUserData(set={'gold': gold, 'redstone': redstone, 'streamers': jdumps(st.exportLevels()), 'lastupdate': round(time())}, where={'user_id': uid})
-    return jdumps({"code": 3, "info": st.st[streamer_id].toJSON(), "update": {"time": round(time()*1000), "money": formatNumber(gold), "points": formatNumber(redstone)}})
+    return jdumps({"code": 3, "info": st.toJSON(streamer_id), "update": {"time": round(time()*1000), "money": formatNumber(user.gold), "points": formatNumber(user.redstone)}})
 
 @app.route("/uptime")
 def uptime():
